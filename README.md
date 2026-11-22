@@ -82,3 +82,22 @@ Piper синтезирует речь локально на CPU. Програм�
 ~~~
 
 В source.wav находится полная первая аудиодорожка, в clips — её фрагменты по границам речи Silero VAD. Откройте review.html для прослушивания. В manifest.csv можно исправить черновой текст, отметить слышимые эффекты, другого говорящего или обрезанные слова и поменять статус проверенной строки. Время указано в секундах от начала аудиодорожки. Редактируемый реестр — manifest.csv; страница прослушивания показывает исходную автоматическую расшифровку.
+
+### Сравнение голосов на CPU
+
+Для контрольного Piper используйте основное окружение. Для Qwen используйте отдельное окружение, чтобы его PyTorch и Transformers не меняли зависимости чата. Стенд рассчитан на Windows x64 и Python 3.11. Для повторения эксперимента из корня проекта:
+
+~~~powershell
+python -m venv data/voice-studio/qwen-env
+$qwen = "data/voice-studio/qwen-env/Scripts/python.exe"
+& $qwen -m pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cpu
+& $qwen -m pip install qwen-tts==0.1.1 soundfile psutil
+& $qwen -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3-TTS-12Hz-0.6B-Base', revision='5d83992436eae1d760afd27aff78a71d676296fc', local_dir='data/voice-studio/qwen-base')"
+$ref = "data/voice-studio/hush/clips/0280.wav"
+$dest = "data/voice-studio/repeat"
+.\.venv\Scripts\python -m aurora.tts.benchmark piper "$dest/piper.wav"
+& $qwen -m aurora.tts.benchmark qwen-vector "$dest/vector.wav" --reference $ref
+& $qwen -m aurora.tts.benchmark qwen-icl "$dest/icl.wav" --reference $ref --transcript "А теперь я так живу. Вот она слава."
+~~~
+
+Для каждого прогона стенд сохраняет WAV и JSON с длительностью, временем загрузки, временем синтеза и пиковым рабочим набором процесса. RTF равен времени синтеза, делённому на длительность результата. Используйте новую папку для каждого повторения.
