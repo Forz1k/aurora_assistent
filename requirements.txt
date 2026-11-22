@@ -4,3 +4,4 @@ pywin32==311
 sounddevice==0.5.3
 silero-vad-lite==0.4.0
 faster-whisper==1.2.1
+vosk==0.3.45
