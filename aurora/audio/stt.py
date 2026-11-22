@@ -18,13 +18,22 @@ def transcribe(pcm: bytes) -> str:
     return " ".join(part for segment in segments if (part := segment.text.strip()))
 
 
-def recognize_command(device: int | None, seconds: int) -> str:
-    print(f"Произнесите команду. Запись: {seconds} с.", flush=True)
+def recognize_command(device: int | None, seconds: int, notify=None) -> str:
+    if notify:
+        notify("LISTENING")
+    else:
+        print(f"Произнесите команду. Запись: {seconds} с.", flush=True)
     frames = list(capture(device, (seconds * RATE + SAMPLES - 1) // SAMPLES))
     if not any(frame.speech_probability >= 0.5 for frame in frames):
+        if notify:
+            raise ValueError("Речь не обнаружена.")
         return "Речь не обнаружена."
+    if notify:
+        notify("TRANSCRIBING")
     try:
         text = transcribe(b"".join(frame.pcm for frame in frames))
     except Exception as error:
         raise RuntimeError(f"Не удалось выполнить распознавание: {error}") from error
+    if notify and not text:
+        raise ValueError("Команду распознать не удалось.")
     return text or "Команду распознать не удалось."

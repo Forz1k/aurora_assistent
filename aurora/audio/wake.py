@@ -38,10 +38,15 @@ def wait_for_name(frames, detector) -> bool:
     return False
 
 
-def listen(device: int | None, seconds: int) -> str:
+def listen(device: int | None, seconds: int, notify=None) -> str:
     detector = make_detector()
     with closing(capture(device, None)) as frames:
-        print("Ожидаю имя «Аврора». Для выхода нажмите Ctrl+C.", flush=True)
+        if notify:
+            notify("WAITING")
+        else:
+            print("Ожидаю имя «Аврора». Для выхода нажмите Ctrl+C.", flush=True)
         if not wait_for_name(frames, detector):
             raise RuntimeError("Поток микрофона завершился до активации.")
+    if notify:
+        return recognize_command(device, seconds, notify)
     return recognize_command(device, seconds)

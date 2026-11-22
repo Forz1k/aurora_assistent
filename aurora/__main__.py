@@ -75,7 +75,7 @@ def main() -> int:
                 return 1
         if args.chat:
             from aurora.ui.chat import run_chat
-            return run_chat()
+            return run_chat(settings.get("microphone"))
         if args.list_models:
             try:
                 models = OllamaProvider().list_models()
