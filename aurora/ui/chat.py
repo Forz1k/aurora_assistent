@@ -2,7 +2,7 @@ import sqlite3
 from pathlib import Path
 from threading import Thread
 
-from PySide6.QtCore import Signal, Slot, Qt
+from PySide6.QtCore import Signal, Slot, Qt, QSettings
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from aurora.providers.base import LLMProvider, ProviderError
 from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
+from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
 class ChatWindow(QWidget):
@@ -21,19 +22,24 @@ class ChatWindow(QWidget):
                  provider: LLMProvider | None = None):
 
         super().__init__()
-        self.setWindowTitle("Аврора · Чат")
         self.resize(680, 500)
-        self.provider = provider if provider is not None else OllamaProvider(base_url)
+        self.local_history = Path(history_path or Path(__file__).resolve().parents[2] / "data/chat.sqlite3")
+        self.settings = QSettings(str(self.local_history.with_suffix(".ini")), QSettings.Format.IniFormat)
+        self.local_provider = provider if provider is not None else OllamaProvider(base_url)
+        self.provider = self.local_provider
+        self.name = "Ollama"
+        self.model = str(self.settings.value("openai_model", ""))
+        startup_error = ""
+        if provider is None and self.settings.value("provider") == "OpenAI":
+            self.name = "OpenAI"
+            try:
+                self.provider = openai_provider(self.model)
+            except ProviderError as error:
+                self.provider = None
+                startup_error = str(error)
+        self.setWindowTitle(f"Аврора · {self.name}")
         self.reply = None
-        self.history = None
-        self.history_error = ""
-        self.messages = []
-        try:
-            self.history = History(history_path or Path(__file__).resolve().parents[2] / "data/chat.sqlite3")
-            self.messages = self.history.messages()
-        except (sqlite3.Error, OSError) as error:
-            self.history = None
-            self.history_error = f"История недоступна: {error}"
+        self.load_history()
         self.pending = ""
         self.busy = False
         self.models = QComboBox()
@@ -51,6 +57,9 @@ class ChatWindow(QWidget):
         toolbar.addWidget(QLabel("Модель"))
         toolbar.addWidget(self.models, 1)
         toolbar.addWidget(self.refresh)
+        self.configure = QPushButton("Провайдер…")
+        self.configure.clicked.connect(self.configure_provider)
+        toolbar.addWidget(self.configure)
         layout.addLayout(toolbar)
         layout.addWidget(self.transcript)
         layout.addWidget(self.status)
@@ -68,12 +77,57 @@ class ChatWindow(QWidget):
         self.send.clicked.connect(self.submit)
         self.input.returnPressed.connect(self.submit)
         self.input.textChanged.connect(self.update_controls)
+        if startup_error:
+            self.status.setText(startup_error)
+            self.update_controls()
+        else:
+            self.reload()
+
+    def load_history(self):
+        self.history = None
+        self.messages = []
+        self.history_error = ""
+        path = self.local_history
+        if self.name == "OpenAI":
+            path = path.with_name(path.stem + "-openai" + path.suffix)
+        try:
+            self.history = History(path)
+            self.messages = self.history.messages()
+        except (sqlite3.Error, OSError) as error:
+            self.history_error = f"История недоступна: {error}"
+
+    def configure_provider(self):
+        dialog = ProviderDialog(self.name, self.model, self)
+        try:
+            if not dialog.exec():
+                return
+            previous = self.name
+            self.name = dialog.name.currentText()
+            self.provider = dialog.provider if self.name == "OpenAI" else self.local_provider
+            self.model = dialog.model.text().strip()
+        finally:
+            dialog.deleteLater()
+        self.settings.setValue("provider", self.name)
+        self.settings.setValue("openai_model", self.model)
+        self.settings.sync()
+        self.setWindowTitle(f"Аврора · {self.name}")
+        if previous != self.name:
+            self.input.clear()
+            self.load_history()
+            self.restore_transcript()
+        warning = self.history_error
+        if self.settings.status() != QSettings.Status.NoError:
+            warning += " Не удалось сохранить выбор провайдера."
+        self.history_status.setText(warning)
+        self.history_status.setVisible(bool(warning))
+        self.models.clear()
         self.reload()
 
     def update_controls(self):
         self.models.setEnabled(not self.busy)
         self.stop.setEnabled(self.reply is not None)
-        self.refresh.setEnabled(not self.busy)
+        self.configure.setEnabled(not self.busy)
+        self.refresh.setEnabled(not self.busy and self.provider is not None)
         self.send.setEnabled(bool(self.models.count() and self.input.text().strip() and not self.busy))
 
     def start(self, operation, status):
