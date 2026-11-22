@@ -43,3 +43,19 @@ def chat(model: str, messages: list[dict[str, str]]) -> str:
     if not isinstance(content, str) or not content.strip():
         raise OllamaError("Ollama вернула ответ без текста.")
     return content
+
+
+def decode_chunk(line: bytes) -> tuple[str, bool]:
+    try:
+        record = json.loads(line)
+    except ValueError as error:
+        raise OllamaError("Некорректный JSON в потоке Ollama.") from error
+    if isinstance(record, dict):
+        if record.get("error"):
+            raise OllamaError(str(record["error"]))
+        message = record.get("message")
+        if isinstance(message, dict) and isinstance(record.get("done"), bool):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content, record["done"]
+    raise OllamaError("Некорректный фрагмент ответа Ollama.")
