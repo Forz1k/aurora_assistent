@@ -28,7 +28,15 @@ def main() -> int:
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--chat", action="store_true", help="Открыть чат")
     modes.add_argument("--list-models", action="store_true", help="Показать модели локальной Ollama")
+    modes.add_argument("--list-mics", action="store_true", help="Показать входные аудиоустройства")
+    modes.add_argument("--check-mic", action="store_true", help="Проверить захват и обнаружение речи")
+    parser.add_argument("--device", type=int, help="Номер входа из --list-mics")
+    parser.add_argument("--seconds", type=int, help="Длительность проверки от 1 до 60 секунд")
     args = parser.parse_args()
+    if not args.check_mic and (args.device is not None or args.seconds is not None):
+        parser.error("--device и --seconds используются с --check-mic")
+    if args.seconds is not None and not 1 <= args.seconds <= 60:
+        parser.error("--seconds: допустимо от 1 до 60")
     try:
         level = load_level(args.config)
         directory = ROOT / "logs"
@@ -37,6 +45,13 @@ def main() -> int:
                                  backupCount=3, encoding="utf-8")
         logging.basicConfig(level=level, handlers=[handler],
                                 format="%(asctime)s %(levelname)s %(message)s")
+        if args.list_mics or args.check_mic:
+            try:
+                from aurora.audio.input import diagnose
+                return diagnose(args.list_mics, args.device, args.seconds or 5)
+            except (ImportError, OSError, RuntimeError, ValueError) as error:
+                print(f"Ошибка аудиоввода: {error}", file=sys.stderr)
+                return 1
         if args.chat:
             from aurora.ui.chat import run_chat
             return run_chat()
