@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from aurora.providers.ollama import OllamaError, list_models
+
 ROOT = Path(__file__).resolve().parents[1]
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -22,6 +24,7 @@ def load_level(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Тестовый запуск Авроры")
     parser.add_argument("--config", type=Path, default=ROOT / "config/settings.yaml")
+    parser.add_argument("--list-models", action="store_true", help="Показать модели локальной Ollama")
     args = parser.parse_args()
     try:
         level = load_level(args.config)
@@ -31,6 +34,16 @@ def main() -> int:
                                  backupCount=3, encoding="utf-8")
         logging.basicConfig(level=level, handlers=[handler],
                                 format="%(asctime)s %(levelname)s %(message)s")
+        if args.list_models:
+            try:
+                models = list_models()
+            except OllamaError as error:
+                logging.error("%s", error)
+                print(error, file=sys.stderr)
+                return 1
+            logging.info("Получен список моделей Ollama: %d", len(models))
+            print("\n".join(models) if models else "Ollama доступна. Список моделей пуст.")
+            return 0
         logging.info("Тестовый запуск завершён.")
     except (OSError, ValueError, yaml.YAMLError) as error:
         print(f"Ошибка запуска: {error}", file=sys.stderr)
