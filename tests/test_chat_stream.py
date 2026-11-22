@@ -78,3 +78,35 @@ def test_stream_cancel_retry_and_reopen(tmp_path):
             window.close()
             server.shutdown()
             app.processEvents()
+
+
+def test_injected_provider(tmp_path):
+    from PySide6.QtCore import QTimer
+    from aurora.providers.base import ChatStream
+
+    class StubProvider:
+        def list_models(self):
+            return ["stub"]
+
+        def stream(self, model, messages):
+            assert model == "stub"
+            assert messages == [{"role": "user", "content": "Hello"}]
+            stream = ChatStream()
+            def respond():
+                stream.chunk.emit("OK")
+                stream.finished.emit("")
+            QTimer.singleShot(0, respond)
+            return stream
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    window = ChatWindow(tmp_path / "history.db", provider=StubProvider())
+    try:
+        wait_until(lambda: not window.busy)
+        window.input.setText("Hello")
+        window.send.click()
+        wait_until(lambda: not window.busy)
+        assert window.history.messages()[-1]["content"] == "OK"
+    finally:
+        window.close()
+        app.processEvents()

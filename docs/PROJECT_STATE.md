@@ -46,4 +46,10 @@
 
 Изменены aurora/ui/chat.py, aurora/providers/ollama.py, .gitignore, README.md и документы ARCHITECTURE, TESTS, PROJECT_STATE. Добавлены aurora/memory/history.py и tests/test_chat_stream.py. Все 11 тестов прошли, включая отмену, обрыв потока, повтор и восстановление истории. Через окно Qt с временной базой проверен реальный ответ qwen2.5:1.5b. Каталог data исключён из Git.
 
-Следующая задача: 2.1 — общий интерфейс LLM-провайдеров.
+## Этап 2 · Задача 2.1 выполнена
+
+Добавлены providers/base.py и providers/ollama_provider.py в пакете aurora. Окно использует общий контракт LLMProvider и ChatStream. Ollama остаётся провайдером по умолчанию. Сетевой запрос, декодирование потока и отмена перенесены из окна в адаптер. Изменены также aurora/__main__.py, aurora/providers/ollama.py, aurora/ui/chat.py, tests/test_chat_stream.py и документы ARCHITECTURE, PROJECT_STATE.
+
+Все 12 тестов прошли, включая подстановку другого провайдера без сети, отмену, повтор и восстановление истории. Через окно с временной базой получен реальный ответ qwen2.5:1.5b, проверочный сервер остановлен.
+
+Следующая задача: 2.2 — клиент OpenAI Responses API.

@@ -4,7 +4,10 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-class OllamaError(Exception):
+from aurora.providers.base import ProviderError
+
+
+class OllamaError(ProviderError):
     """Ошибка обращения к Ollama."""
 
 

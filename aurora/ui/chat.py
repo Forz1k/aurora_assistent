@@ -1,30 +1,29 @@
-import json
 import sqlite3
 from pathlib import Path
 from threading import Thread
 
-from PySide6.QtCore import Signal, Slot, QUrl, Qt
+from PySide6.QtCore import Signal, Slot, Qt
 from PySide6.QtGui import QTextCursor
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
-from aurora.providers import ollama
+from aurora.providers.base import LLMProvider, ProviderError
+from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
 
 
 class ChatWindow(QWidget):
     finished = Signal(object, str)
 
-    def __init__(self, history_path=None, base_url="http://127.0.0.1:11434"):
+    def __init__(self, history_path=None, base_url="http://127.0.0.1:11434", *,
+                 provider: LLMProvider | None = None):
 
         super().__init__()
         self.setWindowTitle("Аврора · Чат")
         self.resize(680, 500)
-        self.base_url = base_url
-        self.network = QNetworkAccessManager(self)
+        self.provider = provider if provider is not None else OllamaProvider(base_url)
         self.reply = None
         self.history = None
         self.history_error = ""
@@ -85,7 +84,7 @@ class ChatWindow(QWidget):
         def worker():
             try:
                 result = operation()
-            except ollama.OllamaError as error:
+            except ProviderError as error:
                 self.finished.emit(None, str(error))
             else:
                 self.finished.emit(result, "")
@@ -93,7 +92,7 @@ class ChatWindow(QWidget):
         Thread(target=worker, daemon=True).start()
 
     def reload(self):
-        self.start(lambda: ollama.list_models(self.base_url), "Запрашиваю модели…")
+        self.start(self.provider.list_models, "Запрашиваю модели…")
 
     def submit(self):
         if not self.send.isEnabled():
@@ -101,18 +100,15 @@ class ChatWindow(QWidget):
         self.pending = self.input.text().strip()
         self.input.setReadOnly(True)
         messages = self.messages + [{"role": "user", "content": self.pending}]
-        payload = {"model": self.models.currentText(), "messages": messages, "stream": True}
-        request = QNetworkRequest(QUrl(self.base_url + "/api/chat"))
-        request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
-        request.setTransferTimeout(180000)
-        self.reply = self.network.post(request, json.dumps(payload).encode())
-        self.reply.readyRead.connect(self.read_chunks)
+        self.answer = ""
+        try:
+            self.reply = self.provider.stream(self.models.currentText(), messages)
+        except ProviderError as error:
+            self.finish_stream(str(error))
+            return
+        self.reply.chunk.connect(self.receive_text)
         self.reply.finished.connect(self.finish_stream)
         self.busy = True
-        self.buffer = b""
-        self.answer = ""
-        self.done = False
-        self.failure = ""
         self.status.setText("Ожидаю ответ…")
         self.append_text(f"Вы: {self.pending}\nАврора: ")
         self.update_controls()
@@ -128,42 +124,16 @@ class ChatWindow(QWidget):
         self.transcript.insertPlainText(text)
         self.transcript.ensureCursorVisible()
 
-    def read_chunks(self, final=False):
-        self.buffer += bytes(self.reply.readAll())
-        lines = self.buffer.split(b"\n")
-        self.buffer = lines.pop()
-        if final and self.buffer:
-            lines.append(self.buffer)
-            self.buffer = b""
-        try:
-            for line in lines:
-                if not line.strip():
-                    continue
-                if self.done:
-                    raise ollama.OllamaError("Лишние данные после конца ответа.")
-                text, self.done = ollama.decode_chunk(line)
-                self.answer += text
-                self.append_text(text)
-        except ollama.OllamaError as error:
-            self.failure = str(error)
-            if not final:
-                self.reply.abort()
+    def receive_text(self, text):
+        self.answer += text
+        self.append_text(text)
 
     def cancel(self):
         if self.reply is not None:
-            self.failure = "Ответ остановлен."
-            self.reply.abort()
+            self.reply.cancel()
 
-    def finish_stream(self):
-        reply = self.reply
-        if not self.failure:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                self.failure = f"Ошибка Ollama: {reply.errorString()}"
-            else:
-                self.read_chunks(final=True)
-                if not self.failure and not (self.done and self.answer.strip()):
-                    self.failure = "Ollama не завершила ответ."
-        if self.failure:
+    def finish_stream(self, error):
+        if error:
             self.restore_transcript()
         else:
             self.messages.extend(({"role": "user", "content": self.pending},
@@ -176,9 +146,8 @@ class ChatWindow(QWidget):
                     self.history_status.setText(f"Ответ не сохранён: {error}")
                     self.history_status.show()
             self.input.clear()
-        self.status.setText(self.failure)
+        self.status.setText(error)
         self.reply = None
-        reply.deleteLater()
         self.pending = ""
         self.busy = False
         self.input.setReadOnly(False)
@@ -200,7 +169,7 @@ class ChatWindow(QWidget):
             self.models.addItems(result)
             if previous in result:
                 self.models.setCurrentText(previous)
-            self.status.setText("" if result else "У Ollama пока нет моделей.")
+            self.status.setText("" if result else "Список моделей пуст.")
         self.pending = ""
         self.input.setReadOnly(False)
         self.update_controls()

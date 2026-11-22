@@ -6,7 +6,8 @@ from pathlib import Path
 
 import yaml
 
-from aurora.providers.ollama import OllamaError, list_models
+from aurora.providers.base import ProviderError
+from aurora.providers.ollama_provider import OllamaProvider
 
 ROOT = Path(__file__).resolve().parents[1]
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -41,8 +42,8 @@ def main() -> int:
             return run_chat()
         if args.list_models:
             try:
-                models = list_models()
-            except OllamaError as error:
+                models = OllamaProvider().list_models()
+            except ProviderError as error:
                 logging.error("%s", error)
                 print(error, file=sys.stderr)
                 return 1
