@@ -7,7 +7,7 @@ from threading import Thread
 from PySide6.QtCore import Signal, Slot, Qt, QSettings, QProcess
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -43,6 +43,7 @@ class ChatWindow(QWidget):
         self.setWindowTitle(f"Аврора · {self.name}")
         self.microphone = microphone
         self.voice_process = None
+        self.speech_process = None
         self.state = "IDLE"
         self.reply = None
         self.load_history()
@@ -66,6 +67,10 @@ class ChatWindow(QWidget):
         self.configure = QPushButton("Провайдер…")
         self.configure.clicked.connect(self.configure_provider)
         toolbar.addWidget(self.configure)
+        self.read_aloud = QCheckBox("Озвучивать ответы")
+        self.read_aloud.setChecked(self.settings.value("read_aloud", False, type=bool))
+        self.read_aloud.toggled.connect(self.toggle_speech)
+        toolbar.addWidget(self.read_aloud)
         layout.addLayout(toolbar)
         layout.addWidget(self.transcript)
         layout.addWidget(self.status)
@@ -135,7 +140,7 @@ class ChatWindow(QWidget):
     def update_controls(self):
         self.models.setEnabled(not self.busy)
         self.voice.setEnabled(bool(self.models.count() and not self.busy and not self.input.text()))
-        self.stop.setEnabled(self.reply is not None or self.voice_process is not None)
+        self.stop.setEnabled(any(p is not None for p in (self.reply, self.voice_process, self.speech_process)))
         self.configure.setEnabled(not self.busy)
         self.refresh.setEnabled(not self.busy and self.provider is not None)
         self.send.setEnabled(bool(self.models.count() and self.input.text().strip() and not self.busy))
@@ -255,7 +260,48 @@ class ChatWindow(QWidget):
         self.answer += text
         self.append_text(text)
 
+    def toggle_speech(self, enabled):
+        self.settings.setValue("read_aloud", enabled)
+        if not enabled and self.speech_process is not None:
+            self.cancel()
+
+    def start_speech(self):
+        self.busy = True
+        process = QProcess(self)
+        self.speech_process = process
+        process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
+        process.finished.connect(self.finish_speech)
+        process.errorOccurred.connect(self.speech_process_error)
+        self.set_state("SPEAKING", "Озвучиваю ответ…")
+        self.update_controls()
+        process.start(sys.executable, ["-m", "aurora.tts.worker"])
+        process.write(self.answer.encode("utf-8"))
+        process.closeWriteChannel()
+
+    def speech_process_error(self, error):
+        if error == QProcess.ProcessError.FailedToStart:
+            self.finish_speech(1)
+
+    def finish_speech(self, code, *_):
+        process = self.speech_process
+        if process is None:
+            return
+        self.speech_process = None
+        self.busy = False
+        if self.state == "CANCELLING":
+            self.set_state("CANCELLED", "Озвучивание остановлено.")
+        elif code:
+            reason = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
+            self.set_state("ERROR", reason or "Не удалось озвучить ответ.")
+        else:
+            self.set_state("IDLE", "")
+        process.deleteLater()
+        self.update_controls()
+
     def cancel(self):
+        if self.speech_process is not None:
+            self.set_state("CANCELLING", "Остановка озвучивания…")
+            self.speech_process.kill()
         if self.voice_process is not None:
             self.set_state("CANCELLING", "Остановка микрофона…")
             self.voice_process.kill()
@@ -277,7 +323,9 @@ class ChatWindow(QWidget):
                     self.history_status.setText(f"Ответ не сохранён: {error}")
                     self.history_status.show()
             self.input.clear()
-        self.set_state("CANCELLED" if self.state == "CANCELLING" else "ERROR" if error else "IDLE", error)
+        speak = not error and self.state != "CANCELLING" and self.read_aloud.isChecked()
+        if not speak:
+            self.set_state("CANCELLED" if self.state == "CANCELLING" else "ERROR" if error else "IDLE", error)
         self.reply = None
         self.pending = ""
         self.busy = False
@@ -285,10 +333,15 @@ class ChatWindow(QWidget):
         self.update_controls()
         self.input.setFocus()
 
+        if speak:
+            self.start_speech()
+
     def closeEvent(self, event):
         self.cancel()
         if self.voice_process is not None:
             self.voice_process.waitForFinished(1000)
+        if self.speech_process is not None:
+            self.speech_process.waitForFinished(1000)
         super().closeEvent(event)
 
     @Slot(object, str)
