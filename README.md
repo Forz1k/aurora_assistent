@@ -34,7 +34,15 @@ python -m venv .venv
 ~~~powershell
 .\.venv\Scripts\python -m pip install -r requirements.txt
 .\.venv\Scripts\python -m aurora --list-mics
-.\.venv\Scripts\python -m aurora --check-mic --device 1 --seconds 5
+.\.venv\Scripts\python -m aurora --check-mic --device 2 --seconds 5
 ~~~
 
-Подставьте актуальный номер из списка. Без --device используется системный вход. Произнесите фразу во время проверки. Команда сообщает число полученных блоков и длительность речи по оценке Silero VAD. Звук обрабатывается в памяти на CPU.
+Подставьте актуальный номер из списка. Без --device выбирается fifine по имени microphone в config/settings.yaml. При отсутствии этой настройки используется системный вход. Список Windows показывает входы одного аудиоинтерфейса, с предпочтением MME. Произнесите фразу во время проверки. Команда сообщает число полученных блоков и длительность речи по оценке Silero VAD. Звук обрабатывается в памяти на CPU.
+
+Для распознавания русской команды запустите:
+
+~~~powershell
+.\.venv\Scripts\python -m aurora --transcribe --seconds 5
+~~~
+
+Говорите после приглашения. После записи команда проверяет наличие речи и выводит распознанный текст. При первом использовании faster-whisper загружает многоязычную модель base в локальный кеш Hugging Face. Распознавание выполняется на CPU INT8, звук остаётся в памяти.

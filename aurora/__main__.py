@@ -13,13 +13,15 @@ ROOT = Path(__file__).resolve().parents[1]
 LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
-def load_level(path: Path) -> str:
+def load_settings(path: Path):
     data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(data, dict) or set(data) != {"log_level"}:
+    if not isinstance(data, dict) or "log_level" not in data or set(data) - {"log_level", "microphone"}:
         raise ValueError("В настройках ожидается поле log_level.")
     if data["log_level"] not in LEVELS:
         raise ValueError("Допустимые значения log_level: " + ", ".join(LEVELS))
-    return data["log_level"]
+    if "microphone" in data and not isinstance(data["microphone"], str):
+        raise ValueError("microphone должно содержать имя входного устройства.")
+    return data
 
 
 def main() -> int:
@@ -30,25 +32,36 @@ def main() -> int:
     modes.add_argument("--list-models", action="store_true", help="Показать модели локальной Ollama")
     modes.add_argument("--list-mics", action="store_true", help="Показать входные аудиоустройства")
     modes.add_argument("--check-mic", action="store_true", help="Проверить захват и обнаружение речи")
+    modes.add_argument("--transcribe", action="store_true", help="Записать и распознать русскую команду")
     parser.add_argument("--device", type=int, help="Номер входа из --list-mics")
     parser.add_argument("--seconds", type=int, help="Длительность проверки от 1 до 60 секунд")
     args = parser.parse_args()
-    if not args.check_mic and (args.device is not None or args.seconds is not None):
-        parser.error("--device и --seconds используются с --check-mic")
+    if not (args.check_mic or args.transcribe) and (args.device is not None or args.seconds is not None):
+        parser.error("--device и --seconds используются с --check-mic или --transcribe")
     if args.seconds is not None and not 1 <= args.seconds <= 60:
         parser.error("--seconds: допустимо от 1 до 60")
     try:
-        level = load_level(args.config)
+        settings = load_settings(args.config)
+        level = settings["log_level"]
         directory = ROOT / "logs"
         directory.mkdir(exist_ok=True)
         handler = RotatingFileHandler(directory / "aurora.log", maxBytes=1048576,
                                  backupCount=3, encoding="utf-8")
         logging.basicConfig(level=level, handlers=[handler],
                                 format="%(asctime)s %(levelname)s %(message)s")
-        if args.list_mics or args.check_mic:
+        if args.list_mics or args.check_mic or args.transcribe:
             try:
-                from aurora.audio.input import diagnose
-                return diagnose(args.list_mics, args.device, args.seconds or 5)
+                from aurora.audio.input import diagnose, select_device
+                from sounddevice import PortAudioError
+                try:
+                    device = None if args.list_mics else select_device(args.device, settings.get("microphone"))
+                    if args.transcribe:
+                        from aurora.audio.stt import recognize_command
+                        print(recognize_command(device, args.seconds or 5))
+                        return 0
+                except PortAudioError as error:
+                    raise RuntimeError(str(error)) from error
+                return diagnose(args.list_mics, device, args.seconds or 5)
             except (ImportError, OSError, RuntimeError, ValueError) as error:
                 print(f"Ошибка аудиоввода: {error}", file=sys.stderr)
                 return 1

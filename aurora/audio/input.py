@@ -16,13 +16,35 @@ class AudioFrame:
     speech_probability: float
 
 
-def microphones() -> list[str]:
+def input_devices() -> list[tuple[int, str, str]]:
     apis = sd.query_hostapis()
-    return [
-        f"{index}: {device['name']} ({apis[device['hostapi']]['name']})"
-        for index, device in enumerate(sd.query_devices())
-        if device["max_input_channels"] > 0
-    ]
+    aliases = {"microsoft sound mapper - input", "первичный драйвер записи звука",
+               "primary sound capture driver"}
+    groups = {}
+    for index, device in enumerate(sd.query_devices()):
+        name = device["name"]
+        if device["max_input_channels"] and name.casefold() not in aliases:
+            api = apis[device["hostapi"]]["name"]
+            groups.setdefault(api, []).append((index, name, api))
+    # Windows enumerates the same endpoints under multiple audio APIs.
+    # Prefer the tested MME capture path and retain native PortAudio indices.
+    for api in ("MME", "Windows WASAPI", "Windows DirectSound"):
+        if api in groups:
+            return groups[api]
+    return next(iter(groups.values()), [])
+
+
+def microphones() -> list[str]:
+    return [f"{index}: {name} ({api})" for index, name, api in input_devices()]
+
+
+def select_device(index, preferred):
+    if index is not None or not preferred:
+        return index
+    matches = [i for i, name, _ in input_devices() if name.casefold() == preferred.casefold()]
+    if len(matches) != 1:
+        raise ValueError(f"Уточните вход через --list-mics и --device: {preferred}")
+    return matches[0]
 
 
 def capture(device: int | None, frames: int) -> Iterator[AudioFrame]:
