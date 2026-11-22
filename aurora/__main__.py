@@ -33,11 +33,12 @@ def main() -> int:
     modes.add_argument("--list-mics", action="store_true", help="Показать входные аудиоустройства")
     modes.add_argument("--check-mic", action="store_true", help="Проверить захват и обнаружение речи")
     modes.add_argument("--transcribe", action="store_true", help="Записать и распознать русскую команду")
+    modes.add_argument("--listen", action="store_true", help="Дождаться имени Аврора и записать команду")
     parser.add_argument("--device", type=int, help="Номер входа из --list-mics")
     parser.add_argument("--seconds", type=int, help="Длительность проверки от 1 до 60 секунд")
     args = parser.parse_args()
-    if not (args.check_mic or args.transcribe) and (args.device is not None or args.seconds is not None):
-        parser.error("--device и --seconds используются с --check-mic или --transcribe")
+    if not (args.check_mic or args.transcribe or args.listen) and (args.device is not None or args.seconds is not None):
+        parser.error("--device и --seconds используются с --check-mic, --transcribe или --listen")
     if args.seconds is not None and not 1 <= args.seconds <= 60:
         parser.error("--seconds: допустимо от 1 до 60")
     try:
@@ -49,12 +50,19 @@ def main() -> int:
                                  backupCount=3, encoding="utf-8")
         logging.basicConfig(level=level, handlers=[handler],
                                 format="%(asctime)s %(levelname)s %(message)s")
-        if args.list_mics or args.check_mic or args.transcribe:
+        if args.list_mics or args.check_mic or args.transcribe or args.listen:
             try:
                 from aurora.audio.input import diagnose, select_device
                 from sounddevice import PortAudioError
                 try:
                     device = None if args.list_mics else select_device(args.device, settings.get("microphone"))
+                    if args.listen:
+                        from aurora.audio.wake import listen
+                        try:
+                            print(listen(device, args.seconds or 5))
+                        except KeyboardInterrupt:
+                            print("Ожидание остановлено.")
+                        return 0
                     if args.transcribe:
                         from aurora.audio.stt import recognize_command
                         print(recognize_command(device, args.seconds or 5))

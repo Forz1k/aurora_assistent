@@ -1,12 +1,19 @@
+from functools import lru_cache
+
 from aurora.audio.input import RATE, SAMPLES, capture
+
+
+@lru_cache(maxsize=1)
+def load_model():
+    from faster_whisper import WhisperModel
+
+    return WhisperModel("base", device="cpu", compute_type="int8")
 
 
 def transcribe(pcm: bytes) -> str:
     import numpy as np
-    from faster_whisper import WhisperModel
 
-    model = WhisperModel("base", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(np.frombuffer(pcm, dtype=np.float32), language="ru",
+    segments, _ = load_model().transcribe(np.frombuffer(pcm, dtype=np.float32), language="ru",
                                    condition_on_previous_text=False)
     return " ".join(part for segment in segments if (part := segment.text.strip()))
 

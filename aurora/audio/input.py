@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import count
 
 import sounddevice as sd
 from silero_vad_lite import SileroVAD
@@ -47,13 +48,13 @@ def select_device(index, preferred):
     return matches[0]
 
 
-def capture(device: int | None, frames: int) -> Iterator[AudioFrame]:
+def capture(device: int | None, frames: int | None) -> Iterator[AudioFrame]:
     if device is not None and device < 0:
         raise ValueError("Номер микрофона должен быть неотрицательным.")
     vad = SileroVAD(RATE)
     with sd.RawInputStream(device=device, samplerate=RATE, channels=1,
                            dtype="float32", blocksize=SAMPLES) as stream:
-        for _ in range(frames):
+        for _ in (count() if frames is None else range(frames)):
             block, overflow = stream.read(SAMPLES)
             if overflow:
                 raise RuntimeError("Переполнение буфера микрофона. Повторите захват.")
