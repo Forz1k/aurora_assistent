@@ -24,7 +24,9 @@ def load_level(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Тестовый запуск Авроры")
     parser.add_argument("--config", type=Path, default=ROOT / "config/settings.yaml")
-    parser.add_argument("--list-models", action="store_true", help="Показать модели локальной Ollama")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--chat", action="store_true", help="Открыть чат")
+    modes.add_argument("--list-models", action="store_true", help="Показать модели локальной Ollama")
     args = parser.parse_args()
     try:
         level = load_level(args.config)
@@ -34,6 +36,9 @@ def main() -> int:
                                  backupCount=3, encoding="utf-8")
         logging.basicConfig(level=level, handlers=[handler],
                                 format="%(asctime)s %(levelname)s %(message)s")
+        if args.chat:
+            from aurora.ui.chat import run_chat
+            return run_chat()
         if args.list_models:
             try:
                 models = list_models()

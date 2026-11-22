@@ -15,3 +15,11 @@ python -m venv .venv
 ~~~powershell
 .\.venv\Scripts\python -m aurora --list-models
 ~~~
+Для запуска окна чата из корня проекта:
+
+~~~powershell
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m aurora --chat
+~~~
+
+При запущенной Ollama выберите модель и отправьте сообщение кнопкой или клавишей Enter. После запуска недоступного сервера нажмите «Обновить». Контекст беседы хранится до закрытия окна.
