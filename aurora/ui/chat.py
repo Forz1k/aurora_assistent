@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from aurora.providers.base import LLMProvider, ProviderError
 from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
+from aurora.tts.worker import DEFAULT_VOICE, VOICES
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
@@ -70,8 +71,20 @@ class ChatWindow(QWidget):
         self.read_aloud = QCheckBox("Озвучивать ответы")
         self.read_aloud.setChecked(self.settings.value("read_aloud", False, type=bool))
         self.read_aloud.toggled.connect(self.toggle_speech)
-        toolbar.addWidget(self.read_aloud)
         layout.addLayout(toolbar)
+        speech_options = QHBoxLayout()
+        speech_options.addWidget(self.read_aloud)
+        self.speaker = QComboBox()
+        self.speaker.setAccessibleName("Женский голос")
+        for key, label in VOICES.items():
+            self.speaker.addItem(label, key)
+        selected = self.settings.value("silero_speaker", DEFAULT_VOICE)
+        self.speaker.setCurrentIndex(max(0, self.speaker.findData(selected)))
+        self.speaker.currentIndexChanged.connect(
+            lambda: self.settings.setValue("silero_speaker", self.speaker.currentData()))
+        speech_options.addWidget(self.speaker)
+        speech_options.addStretch()
+        layout.addLayout(speech_options)
         layout.addWidget(self.transcript)
         layout.addWidget(self.status)
         self.history_status = QLabel(self.history_error)
@@ -274,7 +287,7 @@ class ChatWindow(QWidget):
         process.errorOccurred.connect(self.speech_process_error)
         self.set_state("SPEAKING", "Озвучиваю ответ…")
         self.update_controls()
-        process.start(sys.executable, ["-m", "aurora.tts.worker"])
+        process.start(sys.executable, ["-m", "aurora.tts.worker", "--speaker", self.speaker.currentData()])
         process.write(self.answer.encode("utf-8"))
         process.closeWriteChannel()
 

@@ -20,7 +20,7 @@ def test_speech_preserves_completed_turn(tmp_path, monkeypatch, outcome):
 
     class SpeechProcess(QProcess):
         def start(self, executable, args):
-            assert args == ["-m", "aurora.tts.worker"]
+            assert args == ["-m", "aurora.tts.worker", "--speaker", "baya"]
             script = "import sys,time; assert sys.stdin.buffer.read().decode() == 'Ответ'; "
             script += {"success": "sys.exit(0)", "error": "sys.exit(1)", "cancel": "time.sleep(30)"}[outcome]
             super().start(sys.executable, ["-c", script])
@@ -30,6 +30,7 @@ def test_speech_preserves_completed_turn(tmp_path, monkeypatch, outcome):
     try:
         wait_until(lambda: not window.busy)
         window.read_aloud.setChecked(True)
+        window.speaker.setCurrentIndex(window.speaker.findData("baya"))
         window.pending, window.answer = "Вопрос", "Ответ"
         window.finish_stream("")
         assert window.state == "SPEAKING"
@@ -41,3 +42,19 @@ def test_speech_preserves_completed_turn(tmp_path, monkeypatch, outcome):
     finally:
         window.close()
         app.processEvents()
+
+
+def test_cached_speech_is_persistent_and_voice_specific(tmp_path, monkeypatch):
+    from aurora.tts import worker
+    from aurora.tts.cache import AudioCache
+
+    calls = []
+    monkeypatch.setattr(worker, "load_voice", lambda: calls.append(1))
+    monkeypatch.setattr(worker, "synthesize", lambda model, text, speaker: [speaker.encode()])
+    for speaker in ("xenia", "xenia", "baya"):
+        cache = AudioCache(tmp_path / "speech.db")
+        try:
+            assert list(worker.render("Привет!", speaker, cache)) == [(48000, speaker.encode())]
+        finally:
+            cache.db.close()
+    assert len(calls) == 2

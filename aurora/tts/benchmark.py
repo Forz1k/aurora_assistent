@@ -17,9 +17,9 @@ def benchmark(engine, output, reference, transcript):
         import win32api
         import win32process
         from piper import PiperVoice
-        from aurora.tts.worker import MODEL
+        piper_model = ROOT / "data/voices/ru_RU-irina-medium.onnx"
 
-        model = PiperVoice.load(MODEL, use_cuda=False)
+        model = PiperVoice.load(piper_model, use_cuda=False)
         loaded = time.perf_counter()
         with wave.open(str(output), "wb") as wav:
             model.synthesize_wav(PHRASE, wav)

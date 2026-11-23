@@ -1,26 +1,117 @@
-"""Озвучивание одного ответа. Текст поступает через stdin в UTF-8."""
+"""Локальная русская озвучка Silero. Текст поступает через stdin в UTF-8."""
 
+import argparse
+import re
+import sqlite3
 import sys
+from contextlib import ExitStack
+import textwrap
 from pathlib import Path
 
-MODEL = Path(__file__).resolve().parents[2] / "data/voices/ru_RU-irina-medium.onnx"
+from aurora.tts.cache import AudioCache
+
+MODEL = Path(__file__).resolve().parents[2] / "data/voices/v5_6_ru.pt"
+RATE = 48000
+VOICES = {"xenia": "Ксения · Xenia", "kseniya": "Ксения · Kseniya", "baya": "Бая"}
+DEFAULT_VOICE = "xenia"
 
 
-def speak(text: str) -> None:
+def passages(text):
+    # Оставляем соседние фразы вместе для интонации, ограничиваем длину для модели.
+    for paragraph in text.splitlines():
+        group = ""
+        for sentence in re.split(r"(?<=[.!?…])\s+", paragraph.strip()):
+            for part in textwrap.wrap(sentence, width=450, break_on_hyphens=False):
+                if group and len(group) + len(part) + 1 > 450:
+                    yield group
+                    group = ""
+                group = f"{group} {part}".strip()
+        if group:
+            yield group
+
+
+def load_voice():
+    import torch
+
+    if not MODEL.is_file():
+        raise FileNotFoundError("Загрузите русскую модель Silero v5_6_ru по инструкции в README.")
+    torch.set_num_threads(6)
+    return torch.package.PackageImporter(str(MODEL)).load_pickle("tts_models", "model")
+
+
+def synthesize(model, text, speaker):
+    import torch
+
+    with torch.inference_mode():
+        for part in passages(text):
+            audio = model.apply_tts(text=part, speaker=speaker, sample_rate=RATE)
+            yield audio.clamp(-1, 1).mul(32767).short().numpy().tobytes()
+
+
+def render(text, speaker, cache):
+    primary = backup = None
+    fallback = False
+    for part in passages(text):
+        profile = f"silero-v5_6_ru:{speaker}:{RATE}"
+        try:
+            pcm = cache.get(profile, part) if cache else None
+        except sqlite3.Error:
+            pcm = None
+        if pcm:
+            yield RATE, pcm
+            continue
+        if not fallback:
+            try:
+                if primary is None:
+                    primary = load_voice()
+                pcm = b"".join(synthesize(primary, part, speaker))
+                if not pcm:
+                    raise ValueError("Пустой результат Silero")
+            except Exception:
+                fallback = True
+        if fallback:
+            from piper import PiperVoice
+
+            if backup is None:
+                backup = PiperVoice.load(MODEL.with_name("ru_RU-irina-medium.onnx"), use_cuda=False)
+            for chunk in backup.synthesize(part):
+                yield backup.config.sample_rate, chunk.audio_int16_bytes
+            continue
+        if cache:
+            try:
+                cache.put(profile, part, pcm)
+            except sqlite3.Error:
+                pass
+        yield RATE, pcm
+
+
+def speak(text, speaker=DEFAULT_VOICE):
     import sounddevice as sd
-    from piper import PiperVoice
 
-    if not MODEL.is_file() or not MODEL.with_suffix(".onnx.json").is_file():
-        raise FileNotFoundError("Загрузите голос ru_RU-irina-medium по инструкции в README.")
-    voice = PiperVoice.load(MODEL, use_cuda=False)
-    with sd.RawOutputStream(samplerate=voice.config.sample_rate, channels=1, dtype="int16") as output:
-        for chunk in voice.synthesize(text):
-            output.write(chunk.audio_int16_bytes)
+    with ExitStack() as resources:
+        try:
+            cache = AudioCache(MODEL.parents[1] / "tts-cache.sqlite3")
+            resources.callback(cache.db.close)
+        except (OSError, sqlite3.Error):
+            cache = None
+        output = None
+        previous_rate = None
+        with ExitStack() as playback:
+            for rate, pcm in render(text, speaker, cache):
+                if rate != previous_rate:
+                    playback.close()
+                    output = playback.enter_context(sd.RawOutputStream(
+                        samplerate=rate, channels=1, dtype="int16"))
+                    previous_rate = rate
+                output.write(pcm)
 
 
-def main() -> int:
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--speaker", choices=VOICES, default=DEFAULT_VOICE)
+    args = parser.parse_args()
     try:
-        speak(sys.stdin.buffer.read().decode("utf-8"))
+        speak(sys.stdin.buffer.read().decode("utf-8"), args.speaker)
     except Exception as error:
         sys.stdout.buffer.write(str(error).encode("utf-8", errors="replace"))
         return 1
