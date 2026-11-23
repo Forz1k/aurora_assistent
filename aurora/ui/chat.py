@@ -22,6 +22,7 @@ from aurora.personality.profile import load_prompt
 from aurora.tts import design
 from aurora.tts.worker import DEFAULT_VOICE, QWEN_ENGINES, VOICES
 from aurora.ui import document_dialog
+from aurora.ui.chain_dialog import ChainDialog
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
@@ -87,6 +88,8 @@ class ChatWindow(QWidget):
         menu = QMenu(self.skill_button)
         for name, title in self.skills.catalog():
             menu.addAction(title).triggered.connect(lambda checked=False, key=name: self.run_skill(key))
+        menu.addSeparator()
+        menu.addAction("Цепочка действий…").triggered.connect(self.open_chain)
         self.skill_button.setMenu(menu)
         toolbar.addWidget(self.skill_button)
         self.read_aloud = QCheckBox("Озвучивать ответы")
@@ -168,6 +171,11 @@ class ChatWindow(QWidget):
         if session is not None and box.clickedButton() is session:
             return Decision.SESSION
         return Decision.DENY
+
+    def open_chain(self):
+        dialog = ChainDialog(self.skills, self.document_pool, self)
+        dialog.exec()
+        dialog.deleteLater()
 
     def run_skill(self, name):
         try:
