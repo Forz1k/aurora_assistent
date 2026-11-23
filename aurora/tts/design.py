@@ -18,24 +18,31 @@ PROFILE = f"qwen3-tts-1.7b-voicedesign:{RATE}:42:{STYLE}"
 
 
 def installed():
-    return PYTHON.is_file() and (DIRECTORY / "model.safetensors").is_file() and (
-        DIRECTORY / "speech_tokenizer/model.safetensors").is_file()
+    return weights_available(DIRECTORY)
+
+
+def weights_available(directory):
+    return PYTHON.is_file() and (directory / "model.safetensors").is_file() and (
+        directory / "speech_tokenizer/model.safetensors").is_file()
 
 
 def load_model():
+    return load_weights(DIRECTORY)
+
+
+def load_weights(directory):
     os.environ["HF_HUB_OFFLINE"] = "1"
     import torch
     from qwen_tts import Qwen3TTSModel
 
     torch.set_num_threads(8)
     return Qwen3TTSModel.from_pretrained(
-        str(DIRECTORY), local_files_only=True, device_map="cpu",
+        str(directory), local_files_only=True, device_map="cpu",
         dtype=torch.float32, attn_implementation="eager",
     )
 
 
 def synthesize(model, text):
-    import numpy as np
     import torch
 
     torch.manual_seed(42)
@@ -43,6 +50,12 @@ def synthesize(model, text):
         text=text, language="Russian", instruct=STYLE,
         max_new_tokens=max(192, len(text) * 4),
     )
+    return pcm16(waves, rate)
+
+
+def pcm16(waves, rate):
+    import numpy as np
+
     if rate != RATE or not waves or not waves[0].size or not np.isfinite(waves[0]).all():
         raise ValueError("Модель вернула некорректный звук.")
     return (np.clip(waves[0], -1, 1) * 32767).astype("<i2").tobytes()

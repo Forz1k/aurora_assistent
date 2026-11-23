@@ -8,12 +8,13 @@ from contextlib import ExitStack
 import textwrap
 from pathlib import Path
 
-from aurora.tts import design
+from aurora.tts import design, natural
 from aurora.tts.cache import AudioCache
 
 MODEL = Path(__file__).resolve().parents[2] / "data/voices/v5_6_ru.pt"
 RATE = 48000
-VOICES = {design.SPEAKER: "Аврора · разговорный", "xenia": "Ксения · Xenia", "kseniya": "Ксения · Kseniya", "baya": "Бая"}
+QWEN_ENGINES = {natural.SPEAKER: natural, design.SPEAKER: design}
+VOICES = {natural.SPEAKER: "Аврора · живая речь", design.SPEAKER: "Аврора · разговорный", "xenia": "Ксения · Xenia", "kseniya": "Ксения · Kseniya", "baya": "Бая"}
 DEFAULT_VOICE = "xenia"
 
 
@@ -52,10 +53,10 @@ def synthesize(model, text, speaker):
 def render(text, speaker, cache):
     primary = backup = None
     fallback = False
-    designed = speaker == design.SPEAKER
-    rate = design.RATE if designed else RATE
-    profile = design.PROFILE if designed else f"silero-v5_6_ru:{speaker}:{RATE}"
-    for part in passages(text, 180 if designed else 450):
+    engine = QWEN_ENGINES.get(speaker)
+    rate = engine.RATE if engine else RATE
+    profile = engine.PROFILE if engine else f"silero-v5_6_ru:{speaker}:{RATE}"
+    for part in passages(text, 180 if engine else 450):
         try:
             pcm = cache.get(profile, part) if cache else None
         except sqlite3.Error:
@@ -66,9 +67,9 @@ def render(text, speaker, cache):
         if not fallback:
             try:
                 if primary is None:
-                    primary = design.load_model() if designed else load_voice()
-                if designed:
-                    pcm = design.synthesize(primary, part)
+                    primary = engine.load_model() if engine else load_voice()
+                if engine:
+                    pcm = engine.synthesize(primary, part)
                 else:
                     pcm = b"".join(synthesize(primary, part, speaker))
                 if not pcm:

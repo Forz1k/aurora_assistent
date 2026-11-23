@@ -17,7 +17,7 @@ from aurora.memory.history import History
 from aurora.memory.facts import Facts
 from aurora.personality.profile import load_prompt
 from aurora.tts import design
-from aurora.tts.worker import DEFAULT_VOICE, VOICES
+from aurora.tts.worker import DEFAULT_VOICE, QWEN_ENGINES, VOICES
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
@@ -83,12 +83,13 @@ class ChatWindow(QWidget):
         speech_options.addWidget(self.read_aloud)
         self.speaker = QComboBox()
         self.speaker.setAccessibleName("Женский голос")
-        design_available = design.installed()
         for key, label in VOICES.items():
-            if key == design.SPEAKER and not design_available:
+            if key in QWEN_ENGINES and not QWEN_ENGINES[key].installed():
                 continue
             self.speaker.addItem(label, key)
-        default = design.SPEAKER if design_available else self.settings.value("silero_speaker", DEFAULT_VOICE)
+        default = self.speaker.itemData(0)
+        if default not in QWEN_ENGINES:
+            default = self.settings.value("silero_speaker", DEFAULT_VOICE)
         selected = self.settings.value("speech_profile", default)
         self.speaker.setCurrentIndex(max(0, self.speaker.findData(selected)))
         self.speaker.currentIndexChanged.connect(
@@ -326,7 +327,7 @@ class ChatWindow(QWidget):
         self.set_state("SPEAKING", "Озвучиваю ответ…")
         self.update_controls()
         speaker = self.speaker.currentData()
-        executable = str(design.PYTHON) if speaker == design.SPEAKER else sys.executable
+        executable = str(design.PYTHON) if speaker in QWEN_ENGINES else sys.executable
         process.start(executable, ["-m", "aurora.tts.worker", "--speaker", speaker])
         process.write(self.answer.encode("utf-8"))
         process.closeWriteChannel()
