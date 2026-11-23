@@ -8,6 +8,7 @@ from datetime import datetime
 from jsonschema import Draft202012Validator
 
 from aurora.security.permissions import Permission, Permissions
+from aurora.documents.files import register_document_skills
 from aurora.skills.windows import register_windows_skills
 
 
@@ -33,7 +34,7 @@ class SkillRegistry:
     def catalog(self):
         return [(name, entry[0]) for name, entry in self._entries.items()]
 
-    def execute(self, name, arguments):
+    def execute(self, name, arguments, *, executor=None):
         if not isinstance(name, str) or name not in self._entries:
             logging.warning("Запрошен неизвестный навык")
             raise SkillError("Неизвестный навык.")
@@ -49,6 +50,12 @@ class SkillRegistry:
         if not self._permissions.allows(name, title, permission, encoded):
             logging.info("Выполнение навыка %s отклонено", name)
             raise SkillError("Разрешение не получено.")
+        if executor is not None:
+            return executor.submit(self._invoke, name, title, handler, values)
+        return self._invoke(name, title, handler, values)
+
+    @staticmethod
+    def _invoke(name, title, handler, values):
         try:
             result = handler(**values)
         except Exception as error:
@@ -64,4 +71,5 @@ def default_registry(permissions):
                       {"type": "object", "properties": {}, "additionalProperties": False},
                       Permission.READ, lambda: datetime.now().astimezone().strftime("%d.%m.%Y %H:%M %z"))
     register_windows_skills(registry)
+    register_document_skills(registry)
     return registry

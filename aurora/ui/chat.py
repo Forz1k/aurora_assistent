@@ -1,10 +1,11 @@
 import json
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Thread
 
-from PySide6.QtCore import Signal, Slot, Qt, QSettings, QProcess
+from PySide6.QtCore import Signal, Slot, Qt, QSettings, QProcess, QTimer
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QPushButton,
@@ -20,6 +21,7 @@ from aurora.memory.facts import Facts
 from aurora.personality.profile import load_prompt
 from aurora.tts import design
 from aurora.tts.worker import DEFAULT_VOICE, QWEN_ENGINES, VOICES
+from aurora.ui import document_dialog
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
@@ -78,6 +80,9 @@ class ChatWindow(QWidget):
         self.memory_button.clicked.connect(self.edit_facts)
         toolbar.addWidget(self.memory_button)
         self.skills = default_registry(Permissions(self.confirm_skill))
+        self.document_pool = ThreadPoolExecutor(max_workers=1)
+        self.document_timer = QTimer(self)
+        self.document_timer.timeout.connect(self.document_finished)
         self.skill_button = QPushButton("Навыки")
         menu = QMenu(self.skill_button)
         for name, title in self.skills.catalog():
@@ -166,9 +171,34 @@ class ChatWindow(QWidget):
 
     def run_skill(self, name):
         try:
-            self.status.setText(self.skills.execute(name, {}))
+            if name.startswith("document."):
+                args = document_dialog.arguments(self, name)
+                if args is None:
+                    return
+                self.document_job = self.skills.execute(name, args, executor=self.document_pool)
+                self.document_title = Path(args["path"]).name
+                self.busy = True
+                self.status.setText("Обработка документа…")
+                self.update_controls()
+                self.document_timer.start(100)
+            else:
+                self.status.setText(self.skills.execute(name, {}))
+        except (OSError, SkillError) as error:
+            self.status.setText(str(error))
+
+    def document_finished(self):
+        if not self.document_job.done():
+            return
+        self.document_timer.stop()
+        self.busy = False
+        self.update_controls()
+        try:
+            result = self.document_job.result()
         except SkillError as error:
             self.status.setText(str(error))
+        else:
+            self.status.clear()
+            document_dialog.show_result(self, self.document_title, result)
 
     def edit_facts(self):
         try:
@@ -426,6 +456,8 @@ class ChatWindow(QWidget):
             self.start_speech()
 
     def closeEvent(self, event):
+        self.document_timer.stop()
+        self.document_pool.shutdown(wait=False, cancel_futures=True)
         self.cancel()
         if self.voice_process is not None:
             self.voice_process.waitForFinished(1000)
