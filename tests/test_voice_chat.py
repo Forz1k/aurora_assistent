@@ -52,7 +52,8 @@ def test_voice_to_provider(tmp_path, monkeypatch, outcome):
         wait_until(lambda: not w.busy)
         if outcome == "success":
             assert states == ["STARTING", "WAITING", "LISTENING", "TRANSCRIBING", "THINKING", "IDLE"]
-            assert calls == [("model", [{"role": "user", "content": "hello"}])]
+            assert calls == [("model", [{"role": "system", "content": w.system_prompt},
+                                       {"role": "user", "content": "hello"}])]
             assert w.history.messages()[-1]["content"] == "OK"
         else:
             assert w.state == ("ERROR" if outcome == "error" else "CANCELLED")

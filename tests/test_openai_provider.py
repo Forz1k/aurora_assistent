@@ -50,7 +50,7 @@ def test_responses_stream(case):
         try:
             provider = OpenAIProvider("test-key", "test-model")
             provider.network = LocalNetwork()
-            messages = [{"role": "user", "content": "Hello"}]
+            messages = [{"role": "system", "content": "Profile"}, {"role": "user", "content": "Hello"}]
             stream = provider.stream(provider.list_models()[0], messages)
             chunks, ends = [], []
             stream.chunk.connect(chunks.append)

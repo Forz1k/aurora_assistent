@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 from aurora.providers.base import LLMProvider, ProviderError
 from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
+from aurora.personality.profile import load_prompt
 from aurora.tts.worker import DEFAULT_VOICE, VOICES
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
@@ -27,6 +28,7 @@ class ChatWindow(QWidget):
 
         super().__init__()
         self.resize(680, 500)
+        self.system_prompt = load_prompt()
         self.local_history = Path(history_path or Path(__file__).resolve().parents[2] / "data/chat.sqlite3")
         self.settings = QSettings(str(self.local_history.with_suffix(".ini")), QSettings.Format.IniFormat)
         self.local_provider = provider if provider is not None else OllamaProvider(base_url)
@@ -245,6 +247,8 @@ class ChatWindow(QWidget):
         self.pending = self.input.text().strip()
         self.input.setReadOnly(True)
         messages = self.messages + [{"role": "user", "content": self.pending}]
+        if self.system_prompt:
+            messages.insert(0, {"role": "system", "content": self.system_prompt})
         self.answer = ""
         try:
             self.reply = self.provider.stream(self.models.currentText(), messages)

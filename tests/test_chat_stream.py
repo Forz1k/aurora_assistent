@@ -70,7 +70,8 @@ def test_stream_cancel_retry_and_reopen(tmp_path):
             reopened.input.setText("Again")
             reopened.send.click()
             wait_until(lambda: not reopened.busy)
-            assert requests[-1]["messages"][:-1] == window.messages
+            assert requests[-1]["messages"][0] == {"role": "system", "content": window.system_prompt}
+            assert requests[-1]["messages"][1:-1] == window.messages
             assert requests[-1]["stream"] is True
             reopened.close()
         finally:
@@ -90,7 +91,8 @@ def test_injected_provider(tmp_path):
 
         def stream(self, model, messages):
             assert model == "stub"
-            assert messages == [{"role": "user", "content": "Hello"}]
+            assert messages[0]["role"] == "system" and messages[0]["content"]
+            assert messages[1:] == [{"role": "user", "content": "Hello"}]
             stream = ChatStream()
             def respond():
                 stream.chunk.emit("OK")
