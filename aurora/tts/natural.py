@@ -4,9 +4,9 @@ from aurora.tts import design
 
 SPEAKER = "aurora-live"
 DIRECTORY = design.STUDIO / "qwen-natural"
-REFERENCE = design.STUDIO / "hush/clips/0409.wav"
-TRANSCRIPT = "Думаю, ты любишь обнимашки, но боишься попросить. Если что, я тут."
-PROFILE = f"qwen-base-1.7b:fd4b254:ru-0409:{TRANSCRIPT}:full-text:42:v1"
+REFERENCE = design.STUDIO / "hush/clips/0309.wav"
+TRANSCRIPT = "Интересно, наши дубликаты ели на завтрак то же, что и мы? Надеюсь, да?"
+PROFILE = f"qwen-base-1.7b:fd4b254:ru-0309:{TRANSCRIPT}:full-text:42:v1"
 RATE = design.RATE
 
 

@@ -8,3 +8,4 @@ vosk==0.3.45
 piper-tts==1.4.2
 imageio-ffmpeg==0.6.0
 torch @ https://download.pytorch.org/whl/cpu/torch-2.6.0%2Bcpu-cp311-cp311-win_amd64.whl
+jsonschema==4.25.1

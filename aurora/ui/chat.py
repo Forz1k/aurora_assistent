@@ -8,12 +8,14 @@ from PySide6.QtCore import Signal, Slot, Qt, QSettings, QProcess
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QPushButton,
-    QTextEdit, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from aurora.providers.base import LLMProvider, ProviderError
 from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
+from aurora.security.permissions import Decision, Permissions
+from aurora.skills.registry import SkillError, default_registry
 from aurora.memory.facts import Facts
 from aurora.personality.profile import load_prompt
 from aurora.tts import design
@@ -75,6 +77,13 @@ class ChatWindow(QWidget):
         self.memory_button = QPushButton("Память…")
         self.memory_button.clicked.connect(self.edit_facts)
         toolbar.addWidget(self.memory_button)
+        self.skills = default_registry(Permissions(self.confirm_skill))
+        self.skill_button = QPushButton("Навыки")
+        menu = QMenu(self.skill_button)
+        for name, title in self.skills.catalog():
+            menu.addAction(title).triggered.connect(lambda checked=False, key=name: self.run_skill(key))
+        self.skill_button.setMenu(menu)
+        toolbar.addWidget(self.skill_button)
         self.read_aloud = QCheckBox("Озвучивать ответы")
         self.read_aloud.setChecked(self.settings.value("read_aloud", False, type=bool))
         self.read_aloud.toggled.connect(self.toggle_speech)
@@ -137,6 +146,30 @@ class ChatWindow(QWidget):
         except (sqlite3.Error, OSError) as error:
             self.history_error = f"История недоступна: {error}"
 
+    def confirm_skill(self, title, arguments, reusable):
+        box = QMessageBox(self)
+        box.setWindowTitle("Разрешение на действие")
+        box.setTextFormat(Qt.TextFormat.PlainText)
+        box.setText(f"{title}\nАргументы: {arguments}")
+        once = box.addButton("Разрешить один раз", QMessageBox.ButtonRole.AcceptRole)
+        session = None
+        if reusable:
+            session = box.addButton("Разрешить до закрытия чата", QMessageBox.ButtonRole.ActionRole)
+        deny = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(deny)
+        box.exec()
+        if box.clickedButton() is once:
+            return Decision.ONCE
+        if session is not None and box.clickedButton() is session:
+            return Decision.SESSION
+        return Decision.DENY
+
+    def run_skill(self, name):
+        try:
+            self.status.setText(self.skills.execute(name, {}))
+        except SkillError as error:
+            self.status.setText(str(error))
+
     def edit_facts(self):
         try:
             original = self.facts.read()
@@ -183,6 +216,7 @@ class ChatWindow(QWidget):
         self.voice.setEnabled(bool(self.models.count() and not self.busy and not self.input.text()))
         self.stop.setEnabled(any(p is not None for p in (self.reply, self.voice_process, self.speech_process)))
         self.configure.setEnabled(not self.busy)
+        self.skill_button.setEnabled(not self.busy)
         self.memory_button.setEnabled(not self.busy and self.facts is not None)
         self.refresh.setEnabled(not self.busy and self.provider is not None)
         self.send.setEnabled(bool(self.models.count() and self.input.text().strip() and not self.busy))
