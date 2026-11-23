@@ -115,6 +115,7 @@ class ChatWindow(QWidget):
         speech_options.addWidget(self.speaker)
         speech_options.addStretch()
         self.character = CharacterWindow(self.settings)
+        self.state_changed.connect(self.character.set_state)
         speech_options.addWidget(self.character.menu_button(self))
         self.character.setVisible(self.settings.value("character/visible", False, type=bool))
         layout.addLayout(speech_options)
@@ -190,13 +191,14 @@ class ChatWindow(QWidget):
                 self.document_job = self.skills.execute(name, args, executor=self.document_pool)
                 self.document_title = Path(args["path"]).name
                 self.busy = True
-                self.status.setText("Обработка документа…")
+                self.set_state("EXECUTING", "Обработка документа…")
                 self.update_controls()
                 self.document_timer.start(100)
             else:
-                self.status.setText(self.skills.execute(name, {}))
+                self.set_state("EXECUTING", "")
+                self.set_state("SUCCESS", self.skills.execute(name, {}))
         except (OSError, SkillError) as error:
-            self.status.setText(str(error))
+            self.set_state("ERROR", str(error))
 
     def document_finished(self):
         if not self.document_job.done():
@@ -207,9 +209,9 @@ class ChatWindow(QWidget):
         try:
             result = self.document_job.result()
         except SkillError as error:
-            self.status.setText(str(error))
+            self.set_state("ERROR", str(error))
         else:
-            self.status.clear()
+            self.set_state("SUCCESS", "")
             document_dialog.show_result(self, self.document_title, result)
 
     def edit_facts(self):

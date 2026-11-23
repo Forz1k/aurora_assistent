@@ -1,7 +1,9 @@
-"""Статический персонаж поверх рабочего стола."""
+"""Анимированный персонаж поверх рабочего стола."""
 
-from PySide6.QtCore import QPoint, QRectF, Qt
-from PySide6.QtGui import QColor, QGuiApplication, QLinearGradient, QPainter, QPen
+from pathlib import Path
+
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtGui import QGuiApplication, QMovie, QPainter
 from PySide6.QtWidgets import QMenu, QPushButton, QWidget
 
 
@@ -16,6 +18,10 @@ class CharacterWindow(QWidget):
                  Qt.WindowType.WindowTransparentForInput)
         super().__init__(None, flags)
         self.settings = settings
+        self.animation = "idle"
+        self.movie = QMovie(self)
+        self.movie.frameChanged.connect(self.update_frame)
+        self.movie.finished.connect(self.animation_finished)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -91,24 +97,39 @@ class CharacterWindow(QWidget):
         menu.aboutToShow.connect(populate)
         return button
 
+    def set_state(self, state):
+        animation = {
+            "STARTING": "listening", "WAITING": "listening", "LISTENING": "listening",
+            "TRANSCRIBING": "thinking", "THINKING": "thinking", "EXECUTING": "executing",
+            "SPEAKING": "speaking", "SUCCESS": "success", "ERROR": "error",
+        }.get(state, "idle")
+        if self.animation != animation:
+            self.animation = animation
+            if self.isVisible():
+                self.play()
+
+    def play(self):
+        self.movie.stop()
+        path = Path(__file__).resolve().parents[1] / "assets" / "character"
+        self.movie.setFileName(str(path / (self.animation + ".webp")))
+        self.movie.start()
+
+    def animation_finished(self):
+        if self.animation in ("success", "error"):
+            self.set_state("IDLE")
+
+    def update_frame(self, _):
+        self.update()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.play()
+
+    def hideEvent(self, event):
+        self.movie.stop()
+        super().hideEvent(event)
+
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.scale(self.width() / 120, self.height() / 120)
-        painter.setPen(Qt.PenStyle.NoPen)
-        shell = QLinearGradient(25, 24, 85, 102)
-        shell.setColorAt(0, QColor("#d6fff5"))
-        shell.setColorAt(0.55, QColor("#76d5cf"))
-        shell.setColorAt(1, QColor("#657daa"))
-        painter.setBrush(shell)
-        painter.drawRoundedRect(QRectF(39, 73, 42, 32), 16, 16)
-        painter.drawEllipse(QRectF(12, 46, 16, 25))
-        painter.drawEllipse(QRectF(92, 46, 16, 25))
-        painter.drawRoundedRect(QRectF(19, 24, 82, 62), 26, 26)
-        painter.setBrush(QColor("#183444"))
-        painter.drawRoundedRect(QRectF(26, 35, 68, 39), 16, 16)
-        painter.setPen(QPen(QColor("#b5fff0"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        for x in (40, 68):
-            painter.drawArc(QRectF(x, 48, 12, 12), 20 * 16, 140 * 16)
-        painter.drawLine(56, 64, 64, 64)
-        painter.end()
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.drawPixmap(self.rect(), self.movie.currentPixmap())
