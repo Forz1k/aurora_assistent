@@ -23,6 +23,7 @@ from aurora.tts import design
 from aurora.tts.worker import DEFAULT_VOICE, QWEN_ENGINES, VOICES
 from aurora.ui import document_dialog
 from aurora.ui.chain_dialog import ChainDialog
+from aurora.ui.character import CharacterWindow
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
 
@@ -113,6 +114,9 @@ class ChatWindow(QWidget):
             lambda: self.settings.setValue("speech_profile", self.speaker.currentData()))
         speech_options.addWidget(self.speaker)
         speech_options.addStretch()
+        self.character = CharacterWindow(self.settings)
+        speech_options.addWidget(self.character.menu_button(self))
+        self.character.setVisible(self.settings.value("character/visible", False, type=bool))
         layout.addLayout(speech_options)
         layout.addWidget(self.transcript)
         layout.addWidget(self.status)
@@ -464,6 +468,7 @@ class ChatWindow(QWidget):
             self.start_speech()
 
     def closeEvent(self, event):
+        self.character.close()
         self.document_timer.stop()
         self.document_pool.shutdown(wait=False, cancel_futures=True)
         self.cancel()
