@@ -16,6 +16,7 @@ from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
 from aurora.memory.facts import Facts
 from aurora.personality.profile import load_prompt
+from aurora.tts import design
 from aurora.tts.worker import DEFAULT_VOICE, VOICES
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
 
@@ -82,12 +83,16 @@ class ChatWindow(QWidget):
         speech_options.addWidget(self.read_aloud)
         self.speaker = QComboBox()
         self.speaker.setAccessibleName("Женский голос")
+        design_available = design.installed()
         for key, label in VOICES.items():
+            if key == design.SPEAKER and not design_available:
+                continue
             self.speaker.addItem(label, key)
-        selected = self.settings.value("silero_speaker", DEFAULT_VOICE)
+        default = design.SPEAKER if design_available else self.settings.value("silero_speaker", DEFAULT_VOICE)
+        selected = self.settings.value("speech_profile", default)
         self.speaker.setCurrentIndex(max(0, self.speaker.findData(selected)))
         self.speaker.currentIndexChanged.connect(
-            lambda: self.settings.setValue("silero_speaker", self.speaker.currentData()))
+            lambda: self.settings.setValue("speech_profile", self.speaker.currentData()))
         speech_options.addWidget(self.speaker)
         speech_options.addStretch()
         layout.addLayout(speech_options)
@@ -320,7 +325,9 @@ class ChatWindow(QWidget):
         process.errorOccurred.connect(self.speech_process_error)
         self.set_state("SPEAKING", "Озвучиваю ответ…")
         self.update_controls()
-        process.start(sys.executable, ["-m", "aurora.tts.worker", "--speaker", self.speaker.currentData()])
+        speaker = self.speaker.currentData()
+        executable = str(design.PYTHON) if speaker == design.SPEAKER else sys.executable
+        process.start(executable, ["-m", "aurora.tts.worker", "--speaker", speaker])
         process.write(self.answer.encode("utf-8"))
         process.closeWriteChannel()
 
@@ -340,7 +347,8 @@ class ChatWindow(QWidget):
             reason = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
             self.set_state("ERROR", reason or "Не удалось озвучить ответ.")
         else:
-            self.set_state("IDLE", "")
+            used_backup = b"AURORA_PIPER_FALLBACK" in bytes(process.readAllStandardOutput()).splitlines()
+            self.set_state("IDLE", "Ответ озвучен резервным голосом Piper." if used_backup else "")
         process.deleteLater()
         self.update_controls()
 

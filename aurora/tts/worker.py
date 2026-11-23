@@ -8,21 +8,22 @@ from contextlib import ExitStack
 import textwrap
 from pathlib import Path
 
+from aurora.tts import design
 from aurora.tts.cache import AudioCache
 
 MODEL = Path(__file__).resolve().parents[2] / "data/voices/v5_6_ru.pt"
 RATE = 48000
-VOICES = {"xenia": "Ксения · Xenia", "kseniya": "Ксения · Kseniya", "baya": "Бая"}
+VOICES = {design.SPEAKER: "Аврора · разговорный", "xenia": "Ксения · Xenia", "kseniya": "Ксения · Kseniya", "baya": "Бая"}
 DEFAULT_VOICE = "xenia"
 
 
-def passages(text):
+def passages(text, limit=450):
     # Оставляем соседние фразы вместе для интонации, ограничиваем длину для модели.
     for paragraph in text.splitlines():
         group = ""
         for sentence in re.split(r"(?<=[.!?…])\s+", paragraph.strip()):
-            for part in textwrap.wrap(sentence, width=450, break_on_hyphens=False):
-                if group and len(group) + len(part) + 1 > 450:
+            for part in textwrap.wrap(sentence, width=limit, break_on_hyphens=False):
+                if group and len(group) + len(part) + 1 > limit:
                     yield group
                     group = ""
                 group = f"{group} {part}".strip()
@@ -51,23 +52,29 @@ def synthesize(model, text, speaker):
 def render(text, speaker, cache):
     primary = backup = None
     fallback = False
-    for part in passages(text):
-        profile = f"silero-v5_6_ru:{speaker}:{RATE}"
+    designed = speaker == design.SPEAKER
+    rate = design.RATE if designed else RATE
+    profile = design.PROFILE if designed else f"silero-v5_6_ru:{speaker}:{RATE}"
+    for part in passages(text, 180 if designed else 450):
         try:
             pcm = cache.get(profile, part) if cache else None
         except sqlite3.Error:
             pcm = None
         if pcm:
-            yield RATE, pcm
+            yield rate, pcm
             continue
         if not fallback:
             try:
                 if primary is None:
-                    primary = load_voice()
-                pcm = b"".join(synthesize(primary, part, speaker))
+                    primary = design.load_model() if designed else load_voice()
+                if designed:
+                    pcm = design.synthesize(primary, part)
+                else:
+                    pcm = b"".join(synthesize(primary, part, speaker))
                 if not pcm:
-                    raise ValueError("Пустой результат Silero")
+                    raise ValueError("Пустой результат синтеза")
             except Exception:
+                print("AURORA_PIPER_FALLBACK", flush=True)
                 fallback = True
         if fallback:
             from piper import PiperVoice
@@ -82,7 +89,7 @@ def render(text, speaker, cache):
                 cache.put(profile, part, pcm)
             except sqlite3.Error:
                 pass
-        yield RATE, pcm
+        yield rate, pcm
 
 
 def speak(text, speaker=DEFAULT_VOICE):
