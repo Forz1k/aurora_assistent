@@ -8,6 +8,7 @@ from datetime import datetime
 from jsonschema import Draft202012Validator
 
 from aurora.security.permissions import Permission, Permissions
+from aurora.skills.windows import register_windows_skills
 
 
 class SkillError(ValueError):
@@ -62,4 +63,5 @@ def default_registry(permissions):
     registry.register("local_time", "Местные дата и время",
                       {"type": "object", "properties": {}, "additionalProperties": False},
                       Permission.READ, lambda: datetime.now().astimezone().strftime("%d.%m.%Y %H:%M %z"))
+    register_windows_skills(registry)
     return registry
