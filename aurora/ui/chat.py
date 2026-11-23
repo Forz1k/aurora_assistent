@@ -7,13 +7,14 @@ from threading import Thread
 from PySide6.QtCore import Signal, Slot, Qt, QSettings, QProcess
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QApplication, QCheckBox, QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QPushButton,
     QTextEdit, QVBoxLayout, QWidget,
 )
 
 from aurora.providers.base import LLMProvider, ProviderError
 from aurora.providers.ollama_provider import OllamaProvider
 from aurora.memory.history import History
+from aurora.memory.facts import Facts
 from aurora.personality.profile import load_prompt
 from aurora.tts.worker import DEFAULT_VOICE, VOICES
 from aurora.ui.provider_dialog import ProviderDialog, openai_provider
@@ -70,6 +71,9 @@ class ChatWindow(QWidget):
         self.configure = QPushButton("Провайдер…")
         self.configure.clicked.connect(self.configure_provider)
         toolbar.addWidget(self.configure)
+        self.memory_button = QPushButton("Память…")
+        self.memory_button.clicked.connect(self.edit_facts)
+        toolbar.addWidget(self.memory_button)
         self.read_aloud = QCheckBox("Озвучивать ответы")
         self.read_aloud.setChecked(self.settings.value("read_aloud", False, type=bool))
         self.read_aloud.toggled.connect(self.toggle_speech)
@@ -114,6 +118,7 @@ class ChatWindow(QWidget):
 
     def load_history(self):
         self.history = None
+        self.facts = None
         self.messages = []
         self.history_error = ""
         path = self.local_history
@@ -122,8 +127,23 @@ class ChatWindow(QWidget):
         try:
             self.history = History(path)
             self.messages = self.history.messages()
+            self.facts = Facts(path)
         except (sqlite3.Error, OSError) as error:
             self.history_error = f"История недоступна: {error}"
+
+    def edit_facts(self):
+        try:
+            original = self.facts.read()
+            edited, accepted = QInputDialog.getMultiLineText(
+                self, f"Память · {self.name}",
+                f"Эти факты будут отправляться в {self.name} с каждым запросом. "
+                "Введите по одному на строку. Чтобы забыть факт, удалите строку.",
+                original)
+            if accepted:
+                self.facts.save(original, edited)
+                self.status.setText("Память сохранена.")
+        except (sqlite3.Error, ValueError) as error:
+            self.status.setText(f"Ошибка памяти: {error}")
 
     def configure_provider(self):
         dialog = ProviderDialog(self.name, self.model, self)
@@ -157,6 +177,7 @@ class ChatWindow(QWidget):
         self.voice.setEnabled(bool(self.models.count() and not self.busy and not self.input.text()))
         self.stop.setEnabled(any(p is not None for p in (self.reply, self.voice_process, self.speech_process)))
         self.configure.setEnabled(not self.busy)
+        self.memory_button.setEnabled(not self.busy and self.facts is not None)
         self.refresh.setEnabled(not self.busy and self.provider is not None)
         self.send.setEnabled(bool(self.models.count() and self.input.text().strip() and not self.busy))
 
@@ -247,6 +268,14 @@ class ChatWindow(QWidget):
         self.pending = self.input.text().strip()
         self.input.setReadOnly(True)
         messages = self.messages + [{"role": "user", "content": self.pending}]
+        if self.facts is not None:
+            try:
+                facts = self.facts.read()
+                if facts:
+                    messages.insert(0, {"role": "user", "content": "Сохранённые сведения пользователя:\n" + facts})
+            except sqlite3.Error as error:
+                self.history_status.setText(f"Память недоступна: {error}")
+                self.history_status.show()
         if self.system_prompt:
             messages.insert(0, {"role": "system", "content": self.system_prompt})
         self.answer = ""
