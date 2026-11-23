@@ -1,6 +1,7 @@
 """Локальная русская озвучка Silero. Текст поступает через stdin в UTF-8."""
 
 import argparse
+import math
 import re
 import sqlite3
 import sys
@@ -109,9 +110,18 @@ def speak(text, speaker=DEFAULT_VOICE):
                 if rate != previous_rate:
                     playback.close()
                     output = playback.enter_context(sd.RawOutputStream(
-                        samplerate=rate, channels=1, dtype="int16"))
+                        samplerate=rate, channels=1, dtype="int16", latency="low"))
                     previous_rate = rate
-                output.write(pcm)
+                # Short writes to a low-latency stream pace the meter with playback.
+                block_bytes = max(1, rate // 25) * 2
+                for start in range(0, len(pcm), block_bytes):
+                    block = memoryview(pcm)[start:start + block_bytes]
+                    samples = block.cast("h")
+                    rms = math.sqrt(sum(x * x for x in samples) / len(samples))
+                    level = min(10, round(max(0, rms - 150) / 450))
+                    output.write(block)
+                    print(f"AURORA_MOUTH {level}", flush=True)
+                print("AURORA_MOUTH 0", flush=True)
 
 
 def main():

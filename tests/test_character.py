@@ -55,3 +55,24 @@ def test_animation_states(tmp_path):
     finally:
         character.close()
         app.processEvents()
+
+def test_mouth_tracks_speech_and_resets(tmp_path):
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    character = CharacterWindow(QSettings(str(tmp_path / "chat.ini"), QSettings.Format.IniFormat))
+    try:
+        character.set_state("SPEAKING")
+        character.show()
+        character.movie.setPaused(True)
+        neutral = character.grab().toImage()
+        character.set_mouth_level(10)
+        assert neutral != character.grab().toImage()
+        character.set_mouth_level(0)
+        assert neutral == character.grab().toImage()
+        character.set_mouth_level(8)
+        character.set_state("CANCELLING")
+        character.set_mouth_level(10)
+        assert character.mouth_level == 0
+    finally:
+        character.close()
+        app.processEvents()

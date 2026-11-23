@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtGui import QGuiApplication, QMovie, QPainter
+from PySide6.QtCore import QPoint, QRectF, Qt
+from PySide6.QtGui import QColor, QPainterPath, QGuiApplication, QMovie, QPainter
 from PySide6.QtWidgets import QMenu, QPushButton, QWidget
 
 
@@ -19,6 +19,7 @@ class CharacterWindow(QWidget):
         super().__init__(None, flags)
         self.settings = settings
         self.animation = "idle"
+        self.mouth_level = 0
         self.movie = QMovie(self)
         self.movie.frameChanged.connect(self.update_frame)
         self.movie.finished.connect(self.animation_finished)
@@ -104,6 +105,7 @@ class CharacterWindow(QWidget):
             "SPEAKING": "speaking", "SUCCESS": "success", "ERROR": "error",
         }.get(state, "idle")
         if self.animation != animation:
+            self.mouth_level = 0
             self.animation = animation
             if self.isVisible():
                 self.play()
@@ -129,7 +131,27 @@ class CharacterWindow(QWidget):
         self.movie.stop()
         super().hideEvent(event)
 
+    def set_mouth_level(self, level):
+        if self.animation == "speaking" and level != self.mouth_level:
+            self.mouth_level = level
+            self.update()
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.drawPixmap(self.rect(), self.movie.currentPixmap())
+        frame = self.movie.currentPixmap()
+        painter.drawPixmap(self.rect(), frame)
+        if self.mouth_level and not frame.isNull():
+            # Coordinates follow the lip seam in the original square portrait.
+            painter.scale(self.width() / 1254, self.height() / 1254)
+            gap = self.mouth_level * 1.5
+            mouth = QPainterPath()
+            mouth.moveTo(583, 445)
+            mouth.quadTo(624, 455, 666, 453)
+            mouth.quadTo(627, 456 + gap, 583, 445)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.fillPath(mouth, QColor("#622c40"))
+            lip = QRectF(604, 455, 44, 13)
+            source = QRectF(lip.x() * frame.width() / 1254, lip.y() * frame.height() / 1254,
+                            lip.width() * frame.width() / 1254, lip.height() * frame.height() / 1254)
+            painter.drawPixmap(lip.translated(0, gap * 0.65), frame, source)

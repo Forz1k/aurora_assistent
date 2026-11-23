@@ -399,6 +399,8 @@ class ChatWindow(QWidget):
         self.busy = True
         process = QProcess(self)
         self.speech_process = process
+        self.speech_messages = bytearray()
+        process.readyReadStandardOutput.connect(self.read_speech_events)
         process.setWorkingDirectory(str(Path(__file__).resolve().parents[2]))
         process.finished.connect(self.finish_speech)
         process.errorOccurred.connect(self.speech_process_error)
@@ -410,6 +412,18 @@ class ChatWindow(QWidget):
         process.write(self.answer.encode("utf-8"))
         process.closeWriteChannel()
 
+    def read_speech_events(self):
+        process = self.speech_process
+        while process and process.canReadLine():
+            line = bytes(process.readLine())
+            prefix = b"AURORA_MOUTH "
+            value = line[len(prefix):].strip()
+            if line.startswith(prefix) and value in {b"0", b"1", b"2", b"3", b"4", b"5",
+                                                     b"6", b"7", b"8", b"9", b"10"}:
+                self.character.set_mouth_level(int(value))
+            else:
+                self.speech_messages.extend(line)
+
     def speech_process_error(self, error):
         if error == QProcess.ProcessError.FailedToStart:
             self.finish_speech(1)
@@ -418,15 +432,17 @@ class ChatWindow(QWidget):
         process = self.speech_process
         if process is None:
             return
+        self.read_speech_events()
+        messages = bytes(self.speech_messages) + bytes(process.readAllStandardOutput())
         self.speech_process = None
         self.busy = False
         if self.state == "CANCELLING":
             self.set_state("CANCELLED", "Озвучивание остановлено.")
         elif code:
-            reason = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
+            reason = messages.decode("utf-8", errors="replace")
             self.set_state("ERROR", reason or "Не удалось озвучить ответ.")
         else:
-            used_backup = b"AURORA_PIPER_FALLBACK" in bytes(process.readAllStandardOutput()).splitlines()
+            used_backup = b"AURORA_PIPER_FALLBACK" in messages.splitlines()
             self.set_state("IDLE", "Ответ озвучен резервным голосом Piper." if used_backup else "")
         process.deleteLater()
         self.update_controls()
